@@ -1,0 +1,10 @@
+File,Start Line,End Line,Api,Type,Tips
+RFMHollDataset.py,26,26,torch.utils.data.Dataset,CUSTOM_SUPPORTED,"The corresponding api of ""torch.utils.data.Dataset"" is ""mindspore.dataset.GeneratorDataset"", has been adapted in x2mindspore."
+RFMWoWDataset.py,25,25,torch.utils.data.Dataset,CUSTOM_SUPPORTED,"The corresponding api of ""torch.utils.data.Dataset"" is ""mindspore.dataset.GeneratorDataset"", has been adapted in x2mindspore."
+Run_RFM_Holl.py,97,97,torch.load,CUSTOM_SUPPORTED,"The corresponding api of ""torch.load"" is ""mindspore.load_checkpoint"", will be converted to ""x2ms_adapter.load"" by x2mindspore."
+Run_RFM_Holl.py,111,111,torch.load,CUSTOM_SUPPORTED,"The corresponding api of ""torch.load"" is ""mindspore.load_checkpoint"", will be converted to ""x2ms_adapter.load"" by x2mindspore."
+Run_RFM_WoW.py,129,129,torch.load,CUSTOM_SUPPORTED,"The corresponding api of ""torch.load"" is ""mindspore.load_checkpoint"", will be converted to ""x2ms_adapter.load"" by x2mindspore."
+trainers\DefaultTrainer.py,74,74,torch.save,CUSTOM_SUPPORTED,"The corresponding api of ""torch.save"" is ""mindspore.save_checkpoint"", will be converted to ""x2ms_adapter.save"" by x2mindspore."
+trainers\DefaultTrainer.py,80,80,torch.utils.data.DataLoader,CUSTOM_SUPPORTED,"""torch.utils.data.DataLoader"" has no corresponding api in MindSpore, will be converted to adapted api ""x2ms_datasets.DataLoader"" by x2mindspore."
+trainers\DefaultTrainer.py,83,83,torch.utils.data.DataLoader,CUSTOM_SUPPORTED,"""torch.utils.data.DataLoader"" has no corresponding api in MindSpore, will be converted to adapted api ""x2ms_datasets.DataLoader"" by x2mindspore."
+trainers\DefaultTrainer.py,115,115,torch.utils.data.DataLoader,CUSTOM_SUPPORTED,"""torch.utils.data.DataLoader"" has no corresponding api in MindSpore, will be converted to adapted api ""x2ms_datasets.DataLoader"" by x2mindspore."
