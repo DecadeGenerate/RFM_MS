@@ -141,8 +141,8 @@ def train(args):
                 beam_width=1, emb_matrix=emb_matrix)
     init_params(model, escape='embedding')
 
+    # model_optimizer = nn.Adam(model.trainable_params(),  learning_rate=0.0001)
     model_optimizer = optim_register.adam(x2ms_adapter.parameters(model), lr=0.0001)
-
     trainer = DefaultTrainer(model, args.local_rank)
 
     Total_params = 0
@@ -169,61 +169,61 @@ def train(args):
             train_embedding(model)
         trainer.train_epoch('fb_mle_mcc_ds_train', new_dataset, collate_fn, batch_size, i, model_optimizer)
         # multi_schedule.step()
-        trainer.serialize(i, output_path=output_path)
+        # trainer.serialize(i, output_path=output_path)
 
 
-def test(args):
-    data_path = 'dataset/wizard_of_wikipedia/'
-
-    # cudnn.enabled = True
-    # print(mindspore.__version__)
-    # print(torch.version.cuda)
-    # print(cudnn.version())
-
-    init_seed(123456)
-
-    batch_size = 32
-
-    output_path = 'model/' + 'wizard_of_wikipedia/'
-
-    vocab2id, id2vocab, id2freq = load_vocab(data_path + 'wow_input_output.vocab', t=args.min_vocab_freq)
-
-    samples, query, passage = load_default(args.dataset, data_path + args.dataset + '.answer',
-                                           data_path + args.dataset + '.passage',
-                                           data_path + args.dataset + '.pool',
-                                           data_path + args.dataset + '.qrel',
-                                           data_path + args.dataset + '.query')
-
-    train_samples, dev_samples, test_seen_samples, test_unseen_samples = split_data(args.dataset,
-                                                                                    data_path + args.dataset + '.split',
-                                                                                    samples)
-    print("The number of test_seen_samples:", len(test_seen_samples))
-    print("The number of test_unseen_samples:", len(test_unseen_samples))
-
-    test_seen_dataset = RFMWoWDataset(vocab2id, args.mode, test_seen_samples, query, passage, args.min_window_size,
-                                      args.num_windows, args.knowledge_len, args.context_len)
-
-    test_unseen_dataset = RFMWoWDataset(vocab2id, args.mode, test_unseen_samples, query, passage, args.min_window_size,
-                                        args.num_windows, args.knowledge_len, args.context_len)
-
-    for i in range(30):
-        print('epoch ' + str(i))
-        file = output_path + 'model/' + str(i) + '.pkl'
-
-        if os.path.exists(file):
-            model = RFM(args.min_window_size, args.num_windows, args.embedding_size, args.knowledge_len,
-                        args.context_len, args.hidden_size, vocab2id, id2vocab, max_dec_len=70, beam_width=1)
-            x2ms_adapter.load_state_dict(model, x2ms_adapter.load(file))
-            trainer = DefaultTrainer(model, None)
-            # trainer.test('test', dev_dataset, collate_fn, batch_size, i, output_path=output_path)
-            # seen
-            print('test_seen:')
-            trainer.test('test', test_seen_dataset, collate_fn, batch_size, 100 + i, output_path=output_path,
-                         test_type=args.test)
-            # unseen
-            print('test_unseen:')
-            trainer.test('test', test_unseen_dataset, collate_fn, batch_size, 1000 + i, output_path=output_path,
-                         test_type=args.test)
+# def test(args):
+#     data_path = 'dataset/wizard_of_wikipedia/'
+#
+#     # cudnn.enabled = True
+#     # print(mindspore.__version__)
+#     # print(torch.version.cuda)
+#     # print(cudnn.version())
+#
+#     init_seed(123456)
+#
+#     batch_size = 32
+#
+#     output_path = 'model/' + 'wizard_of_wikipedia/'
+#
+#     vocab2id, id2vocab, id2freq = load_vocab(data_path + 'wow_input_output.vocab', t=args.min_vocab_freq)
+#
+#     samples, query, passage = load_default(args.dataset, data_path + args.dataset + '.answer',
+#                                            data_path + args.dataset + '.passage',
+#                                            data_path + args.dataset + '.pool',
+#                                            data_path + args.dataset + '.qrel',
+#                                            data_path + args.dataset + '.query')
+#
+#     train_samples, dev_samples, test_seen_samples, test_unseen_samples = split_data(args.dataset,
+#                                                                                     data_path + args.dataset + '.split',
+#                                                                                     samples)
+#     print("The number of test_seen_samples:", len(test_seen_samples))
+#     print("The number of test_unseen_samples:", len(test_unseen_samples))
+#
+#     test_seen_dataset = RFMWoWDataset(vocab2id, args.mode, test_seen_samples, query, passage, args.min_window_size,
+#                                       args.num_windows, args.knowledge_len, args.context_len)
+#
+#     test_unseen_dataset = RFMWoWDataset(vocab2id, args.mode, test_unseen_samples, query, passage, args.min_window_size,
+#                                         args.num_windows, args.knowledge_len, args.context_len)
+#
+#     for i in range(30):
+#         print('epoch ' + str(i))
+#         file = output_path + 'model/' + str(i) + '.pkl'
+#
+#         if os.path.exists(file):
+#             model = RFM(args.min_window_size, args.num_windows, args.embedding_size, args.knowledge_len,
+#                         args.context_len, args.hidden_size, vocab2id, id2vocab, max_dec_len=70, beam_width=1)
+#             x2ms_adapter.load_state_dict(model, x2ms_adapter.load(file))
+#             trainer = DefaultTrainer(model, None)
+#             # trainer.test('test', dev_dataset, collate_fn, batch_size, i, output_path=output_path)
+#             # seen
+#             print('test_seen:')
+#             trainer.test('test', test_seen_dataset, collate_fn, batch_size, 100 + i, output_path=output_path,
+#                          test_type=args.test)
+#             # unseen
+#             print('test_unseen:')
+#             trainer.test('test', test_unseen_dataset, collate_fn, batch_size, 1000 + i, output_path=output_path,
+#                          test_type=args.test)
 
 
 if __name__ == '__main__':
@@ -244,7 +244,7 @@ if __name__ == '__main__':
     parser.add_argument("--model_path", type=str)
     args = parser.parse_args()
 
-    if args.mode == 'test':
-        test(args)
-    elif args.mode == 'train':
+    # if args.mode == 'test':
+    #     test(args)
+    if args.mode == 'train':
         train(args)

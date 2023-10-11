@@ -55,7 +55,6 @@ class DefaultTrainer(object):
         #                                                            find_unused_parameters=True)
 
     def train_batch(self, epoch, data, method, optimizer):
-        x2ms_adapter.nn_cell.zero_grad(optimizer)
         print(data)
         # loss = self.model(data, method=method)
         encode_output, all_gen_output = self.model(data)
@@ -71,7 +70,6 @@ class DefaultTrainer(object):
             closs = [x2ms_adapter.tensor_api.item(x2ms_adapter.tensor_api.mean(l)) for l in loss]
             print("closs is:")
             print(closs)
-            # loss = torch.cat([l.mean().view(1) for l in loss]).sum()
             loss = x2ms_adapter.tensor_api.mean(x2ms_adapter.cat(loss, dim=-1))
             print("loss is:")
             print(loss)
@@ -79,11 +77,9 @@ class DefaultTrainer(object):
             loss = x2ms_adapter.tensor_api.mean(loss)
             closs = [x2ms_adapter.tensor_api.item(loss)]
 
-        loss.backward()
-        print("backward finish")
-        util_api.clip_grad_norm(x2ms_adapter.parameters(self.model), 2)
-        print("norm finish")
-        optimizer.step()
+
+        # util_api.clip_grad_norm(self.model.trainable_params(), 2)
+
         return closs
 
     def serialize(self, epoch, output_path):
@@ -93,6 +89,7 @@ class DefaultTrainer(object):
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         x2ms_adapter.save(x2ms_adapter.state_dict(self.eval_model), os.path.join(output_path, '.'.join([str(epoch), 'pkl'])))
+
 
     def train_epoch(self, method, train_dataset, train_collate_fn, batch_size, epoch, optimizer):
         # 根据输入数据和类型，进行一个训练周期，并打印损失值和时间。这个方法的参数如下：
