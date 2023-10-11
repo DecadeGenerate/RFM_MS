@@ -33,7 +33,7 @@ If you use any source code included in this repo in your work, please cite the f
 - Furthermore,you should download nltk_data ,change the append path and put it {your_path}/RFM_MS/
 
 ```
-## Nowadays,it can only run the model forward only
+
 ```
 To view the model, run in the cloud platform:
 
