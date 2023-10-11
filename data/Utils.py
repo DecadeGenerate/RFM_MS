@@ -73,18 +73,19 @@ def build_words_vocab_map(words, vocab2id):
 
 
 def build_map(b_map, max=None):
-    b_map = mindspore.ops.expand_dims(b_map, 0)
     batch_size, b_len = x2ms_adapter.tensor_api.x2ms_size(b_map)
     # b_len = x2ms_adapter.tensor_api.x2ms_size(b_map)
     # batch_size = 1
     if max is None:
         max = x2ms_adapter.tensor_api.x2ms_max(b_map) + 1
-    b_map_ = x2ms_adapter.zeros(batch_size, b_len, max)
-    if x2ms_adapter.is_cuda_available():
-        b_map_ = b_map_
+    maxint = max.asnumpy().item()
+    b_map_ = x2ms_adapter.zeros(batch_size, b_len, maxint)
+    # if x2ms_adapter.is_cuda_available():
+    #     b_map_ = b_map_
     x2ms_adapter.tensor_api.scatter_(b_map_, 2, mindspore.ops.expand_dims(b_map, 2), 1.)
     # b_map_[:, :, 0] = 0.
-    b_map_.requires_grad = False
+    # b_map_.requires_grad = False
+    b_map_ = mindspore.ops.stop_gradient(b_map_)
     return b_map_
 
 

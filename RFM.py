@@ -1,3 +1,5 @@
+import numpy
+
 from EncDecModel import *
 from modules.BilinearAttention import *
 from modules.Highway import *
@@ -55,22 +57,36 @@ class GenEncoder(nn.Cell):
         c_states = []
 
         c_mask = x2ms_adapter.tensor_api.detach(mindspore.ops.ne(c,0))  # [batch_size, word_num]
-        c_lengths = x2ms_adapter.tensor_api.detach(c_mask.sum(1))  # [batch_size]
-
-        c_emb = x2ms_adapter.nn_functional.dropout(self.c_embedding[0](c), training=self.training)
+        # c_lengths = x2ms_adapter.tensor_api.detach(x2ms_adapter.x2ms_sum(c_mask, dim=1))  # [batch_size]
+        lengths = c.shape[1]
+        c_lengths = mindspore.Tensor([lengths])
+        # c_emb = x2ms_adapter.nn_functional.dropout(self.c_embedding[0](c), training=self.training)
+        c_emb = self.c_embedding[0](c)
+        print("c_emb.shape:")
+        print(c_emb.shape)
         c_enc_output = c_emb  # [batch_size, word_num, emb_dim]   word_num: knowledge_len(300) or context_len(65)
 
         for i in range(self.n):  # self.n == 1
             if i > 0:
-                c_enc_output = x2ms_adapter.cat([c_enc_output, x2ms_adapter.nn_functional.dropout(self.c_embedding[i](c), training=self.training)],
-                                         dim=-1)
+                # c_enc_output = x2ms_adapter.cat([c_enc_output, x2ms_adapter.nn_functional.dropout(self.c_embedding[i](c), training=self.training)],
+                #                          dim=-1)
+                c_enc_output = x2ms_adapter.cat([c_enc_output, self.c_embedding[i](c)], dim=-1)
+            print("c_enc_output.shape:")
+            print(c_enc_output.shape)
             c_enc_output, c_state = gru_forward(self.c_encs[i], c_enc_output, c_lengths)
-
+            print("after gru_forward,c_enc_output.shape:")
+            print(c_enc_output.shape)
+            print("after gru_forward,c_state.shape:")
+            print(c_state.shape)
             c_outputs.append(x2ms_adapter.tensor_api.unsqueeze(c_enc_output, 1))
             c_states.append(x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.tensor_api.view(c_state, x2ms_adapter.tensor_api.x2ms_size(c_state, 0), -1), 1))
 
         output = x2ms_adapter.cat(c_outputs, dim=1)
+        print("gecencoder output:")
+        print(output.shape)
         state = x2ms_adapter.cat(c_states,dim=1)
+        print("gecencoder state:")
+        print(state.shape)
         return output, state   # [batch_size, 1, word_num, hidden_size] [batch_size, 1, hidden_size]
 
 
@@ -114,10 +130,12 @@ class KnowledgeSelector(nn.Cell):
         c_enc_output = self.c_highway(x2ms_adapter.cat([c_enc_output, x2ms_adapter.tensor_api.expand(c_state, -1, x2ms_adapter.tensor_api.x2ms_size(c_enc_output, 1), -1)], dim=-1))
 
         matching = self.match_attn.matching(b_enc_output, c_enc_output)
-
-        matching = x2ms_adapter.tensor_api.masked_fill(matching, ~x2ms_adapter.tensor_api.unsqueeze(c_mask, 1), -float('inf'))
-        matching = x2ms_adapter.tensor_api.masked_fill(matching, ~x2ms_adapter.tensor_api.unsqueeze(b_mask, 2), 0)
-
+        print("this is matching.shape:")
+        print(matching.shape)
+        print(matching)
+        matching = x2ms_adapter.tensor_api.masked_fill(matching, x2ms_adapter.tensor_api.unsqueeze(c_mask, 1), -float('inf'))
+        matching = x2ms_adapter.tensor_api.masked_fill(matching, x2ms_adapter.tensor_api.unsqueeze(b_mask, 2), 0.)
+        print(matching)
         score = x2ms_adapter.tensor_api.x2ms_max(matching, dim=-1)[0]
 
         return score
@@ -138,14 +156,16 @@ class KnowledgeSelector(nn.Cell):
         ss = list()
         for i in range(self.n_windows):
             # b = b_enc_output.unfold(1, window_size, self.min_window_size)
-            b = bunfold(b_enc_output)
-            b = x2ms_adapter.tensor_api.contiguous(x2ms_adapter.tensor_api.transpose(b, 2, 3))
+            b = bunfold(b_enc_output,1, window_size, self.min_window_size)
+            print("after bunfold the shape is:")
+            print(b.shape)
+            b = x2ms_adapter.tensor_api.contiguous(b) # 输入到双线性的b应该是（1,64,4,256）(以knowleadge_length为256，hidden_size为256，min_windowsizew为4为例，这些默认参数不可变动否则会出错)
             b = x2ms_adapter.tensor_api.squeeze(self.area_attn(x2ms_adapter.tensor_api.unsqueeze(c_state, 1), b, b)[0], 2)
             bs.append(b)
 
             # s = b_score.unfold(1, window_size, self.min_window_size)
-            s = bunfold(b_score)
-            s = s.sum(-1)
+            s = cunfold(b_score,1, window_size, self.min_window_size)
+            s = x2ms_adapter.x2ms_sum(s,dim=-1)
             ss.append(s)
 
             window_size += self.min_window_size
@@ -174,14 +194,36 @@ class KnowledgeSelector(nn.Cell):
         # [batch_size, 1, hidden_size], [batch_size, knowledge_len/window_size(4)], [batch_size, knowledge_len]
 
 
-def bunfold(b):
+def bunfold(b,dim, window_size, min_window_size):
     # pytorch的torch.tensor.unfold的粗略实现
-    btuple = b.split(0, 64)
-    btensors = mindspore.ops.stack(btuple, 0)
-    unfoldT = x2ms_adapter.tensor_api.unsqueeze(btensors, 0)
+    length = b.shape[dim]
+    print("this is unfold input b.shape[dim]")
+    print(length)
+    result = []
+    for i in range(0, length, min_window_size):
+        result.append(b[:, i:i + window_size, :])
+        print("this is unfold slite.shape")
+        print(b[:, i:i + window_size, :].shape)
+    y = mindspore.ops.stack(result, axis=dim)
+    print("this is unfold shape")
+    print(y.shape)
+    return y
 
-    return unfoldT
 
+def cunfold(c,dim, window_size, min_window_size):
+    # pytorch的torch.tensor.unfold的粗略实现
+    length = c.shape[dim]
+    print("this is cunfold input c.shape[dim]")
+    print(length)
+    result = []
+    for i in range(0, length, min_window_size):
+        result.append(c[:, i:i + window_size])
+        print("this is cunfold slite.shape")
+        print(c[:, i:i + window_size].shape)
+    y = mindspore.ops.stack(result, axis=dim)
+    print("this is cunfold shape")
+    print(y.shape)
+    return y
 
 class CopyGenerator(nn.Cell):
     # 定义一个复制生成器，用于从背景知识中复制单词到生成的文本中。这个类的参数如下：
@@ -302,6 +344,7 @@ class Mixturer(nn.Cell):
         self.linear1 = x2ms_nn.Linear(hidden_size, 1)
 
     def construct(self, state, dists1, dists2, dyn_map):
+        # decode_outputs['state'][1, 1, 256], decode_outputs['p_v'][1,59222(item_size即vocab_size)], decode_outputs['p_k'][1,256], data['dyn_map']
         # def construct(self, state, dists1, dists2, dyn_map): 构造方法，用于定义类的计算逻辑。这个方法的参数如下：
         # state: 一个张量，表示当前位置对应的隐藏状态向量，形状为(batch_size, 1, hidden_size)。
         # dists1: 一个张量，表示第一个概率分布向量，形状为(batch_size, vocab_size)。
@@ -311,6 +354,7 @@ class Mixturer(nn.Cell):
         # 然后将第二个概率分布向量和动态词汇表映射矩阵相乘，得到调整后的概率分布向量。
         # 接着将两个概率分布向量按照混合权重进行加权平均，得到最终的概率分布向量。
         # 返回这个向量作为输出。
+        # 最后的p的shape为（1,vocab_size+经过buildmap之后的dyn_map中的max）
         p_k_v = x2ms_adapter.sigmoid(self.linear1(x2ms_adapter.tensor_api.squeeze(state, 1)))
 
         dists2 = x2ms_adapter.tensor_api.squeeze(x2ms_adapter.bmm(x2ms_adapter.tensor_api.unsqueeze(dists2, 1), dyn_map), 1)
@@ -353,8 +397,7 @@ class Criterion(object):
 
     def __call__(self, gen_output, response, dyn_response, UNK, reduction='mean'):
         # 调用方法，用于计算损失值。这个方法的参数如下：
-        # gen_output: 一个张量，表示生成文本中每个位置对应的单词概率分布，形状为(batch_size, vocab_size + dyn_vocab_size)。
-        # 其中vocab_size是目标词汇表的大小，dyn_vocab_size是动态词汇表的大小。
+        # gen_output: 一个张量，表示生成文本中每个位置对应的单词概率分布。
         # response: 一个张量，表示参考文本中每个位置对应的单词索引，形状为(batch_size, seq_len)。其中seq_len是序列长度。
         # dyn_response: 一个张量，表示参考文本中每个位置对应的动态词汇表中的单词索引，形状为(batch_size, seq_len)。
         # UNK: 一个整数，表示未知单词在目标词汇表中的索引。
@@ -367,17 +410,25 @@ class Criterion(object):
         # 其中掩码向量用于过滤掉填充位置和未知单词位置上的概率值。
         # 接着将两个概率值相加，并加上一个很小的正数eps，然后取对数。
         # 最后将对数概率值乘以另一个掩码向量，用于过滤掉填充位置上的损失值，并根据reduction参数返回相应的损失值。
+
         dyn_not_pad = x2ms_adapter.tensor_api.x2ms_float(mindspore.ops.ne(dyn_response,0))
         v_not_unk = x2ms_adapter.tensor_api.x2ms_float(mindspore.ops.ne(response,UNK))
         v_not_pad = x2ms_adapter.tensor_api.x2ms_float(mindspore.ops.ne(response,0))
 
         if len(x2ms_adapter.tensor_api.x2ms_size(gen_output)) > 2:
             gen_output = x2ms_adapter.tensor_api.view(gen_output, -1, x2ms_adapter.tensor_api.x2ms_size(gen_output, -1))
-
-        p_dyn = x2ms_adapter.tensor_api.view(gen_output.gather(1, x2ms_adapter.tensor_api.view(dyn_response, -1, 1) + self.offset), -1)
+        if gen_output.shape[0] != response.shape[1]:
+            pad_length = response.shape[1] - gen_output.shape[0]
+            paddings = ((0, pad_length), (0, 0))
+            gen_output = mindspore.ops.Pad(paddings)(gen_output)
+        print("this is new gen_output.shape")
+        print(gen_output.shape)
+        p_dyn = x2ms_adapter.tensor_api.view(mindspore.ops.gather_d(gen_output, 1, x2ms_adapter.tensor_api.view(dyn_response, -1, 1) + self.offset),-1)
+        print("this is p_dyn.shape")
+        print(p_dyn.shape)
         p_dyn = x2ms_adapter.tensor_api.mul(p_dyn, x2ms_adapter.tensor_api.view(dyn_not_pad, -1))
 
-        p_v = x2ms_adapter.tensor_api.view(gen_output.gather(1, x2ms_adapter.tensor_api.view(response, -1, 1)), -1)
+        p_v = x2ms_adapter.tensor_api.view(mindspore.ops.gather_d(gen_output, 1, x2ms_adapter.tensor_api.view(response, -1, 1) ), -1)
         p_v = x2ms_adapter.tensor_api.mul(p_v, x2ms_adapter.tensor_api.view(v_not_unk, -1))
 
         p = p_dyn + p_v + self.eps
@@ -385,7 +436,7 @@ class Criterion(object):
 
         loss = -x2ms_adapter.tensor_api.mul(p, x2ms_adapter.tensor_api.view(v_not_pad, -1))
         if reduction == 'mean':
-            return loss.sum() /  v_not_pad.sum()
+            return x2ms_adapter.x2ms_sum(loss) /  x2ms_adapter.x2ms_sum(v_not_pad)
         elif reduction == 'none':
             return x2ms_adapter.tensor_api.view(loss, x2ms_adapter.tensor_api.x2ms_size(response))
 
@@ -480,19 +531,21 @@ class RFM(EncDecModel):
         # 接着调用知识选择器对象，根据背景知识和对话上下文的编码输出和状态以及相应的掩码向量（用于过滤掉填充位置），得到候选知识子序列向量、选择概率向量和匹配分数向量。
         # 然后将选择概率向量和匹配分数向量在最后一个维度上拼接起来，并通过一个线性层进行非线性变换，得到候选知识子序列向量。
         # 最后将所有得到的向量作为键值对保存在一个字典中，并返回这个字典作为输出。
-        b_enc_outputs, b_states = self.b_encoder(
-            data['unstructured_knowledge'])  # [batch_size, 1, knowledge_len, hidden_size], [batch_size, 1, hidden_size]
-        c_enc_outputs, c_states = self.c_encoder(
-            data['context'])  # [batch_size, 1, context_len, hidden_size], [batch_size, 1, hidden_size]
+        b_enc_outputs, b_states = self.b_encoder(data['unstructured_knowledge'])  # [batch_size, 1, knowledge_len, hidden_size], [batch_size, 1, hidden_size]
+        c_enc_outputs, c_states = self.c_encoder(data['context'])  # [batch_size, 1, context_len, hidden_size], [batch_size, 1, hidden_size]
         b_enc_output = b_enc_outputs[:, -1]  # [batch_size, knowledge_len, hidden_size]
         b_state = x2ms_adapter.tensor_api.unsqueeze(b_states[:, -1], 1)  # [batch_size, 1, hidden_size]
         c_enc_output = c_enc_outputs[:, -1]  # [batch_size, context_len, hidden_size]
         c_state = x2ms_adapter.tensor_api.unsqueeze(c_states[:, -1], 1)  # [batch_size, 1, hidden_size]
-
-        _, p_s, p_g = self.k_selector(b_enc_output, c_enc_output, c_state, mindspore.ops.ne(data['unstructured_knowledge'],0),
-                                      mindspore.ops.ne(data['context'], 0))
+        print("b_enc_output.shape:")
+        print(b_enc_output.shape)
+        print("c_enc_output.shape:")
+        print(c_enc_output.shape)
+        print("c_state.shape:")
+        print(c_state.shape)
+        _, p_s, p_g = self.k_selector(b_enc_output, c_enc_output, c_state, mindspore.ops.equal(data['unstructured_knowledge'],0),
+                                      mindspore.ops.equal(data['context'], 0))
         # [batch_size, 1, hidden_size], [batch_size, knowledge_len/window_size(4)], [batch_size, knowledge_len]
-
         s_g = x2ms_adapter.cat((x2ms_adapter.tensor_api.unsqueeze(p_s, 1), x2ms_adapter.tensor_api.unsqueeze(p_g, 1)), dim=-1)
         segment = self.segment_linear(s_g)
 
@@ -543,8 +596,8 @@ class RFM(EncDecModel):
         # 生成器对象根据单词向量、隐藏状态向量、反馈信息向量、候选知识子序列向量、背景知识和对话上下文的编码输出以及相应的掩码向量（用于过滤掉填充位置），
         # 计算当前位置对应的单词和背景知识或词汇表之间的生成概率，并返回更新后的概率分布向量。
         # 最后将所有得到的向量作为键值对保存在一个字典中，并返回这个字典作为输出。
-        word_embedding = x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.nn_functional.dropout(self.embedding(previous_word), training=self.training), 1)
-
+        # word_embedding = x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.nn_functional.dropout(self.embedding(previous_word), training=self.training), 1)
+        word_embedding = x2ms_adapter.tensor_api.unsqueeze(self.embedding(previous_word), 1)
         states = previous_deocde_outputs['state']
         states = self.state_tracker(word_embedding, states)  # [batch_size, 1, hidden_size]
 
@@ -557,12 +610,12 @@ class RFM(EncDecModel):
 
         p_k = self.c_generator(p_k, word_embedding, states, feedback_outputs, encode_outputs['segment'],
                                encode_outputs['b_enc_output'],
-                               encode_outputs['c_enc_output'], mindspore.ops.ne(data['unstructured_knowledge'],0),
-                               mindspore.ops.ne(data['context'],0))
+                               encode_outputs['c_enc_output'], mindspore.ops.equal(data['unstructured_knowledge'],0),
+                               mindspore.ops.equal(data['context'],0))
         p_v = self.v_generator(p_v, word_embedding, states, feedback_outputs, encode_outputs['segment'],
                                encode_outputs['b_enc_output'],
-                               encode_outputs['c_enc_output'], mindspore.ops.ne(data['unstructured_knowledge'],0),
-                               mindspore.ops.ne(data['context'],0))
+                               encode_outputs['c_enc_output'], mindspore.ops.equal(data['unstructured_knowledge'],0),
+                               mindspore.ops.equal(data['context'],0))
 
         return {'p_k': p_k, 'p_v': p_v, 'state': states}
 
@@ -595,7 +648,8 @@ class RFM(EncDecModel):
         # 接着将匹配分数向量在第二个维度上互换，并进行批次矩阵乘法，并在最后一个维度上进行softmax归一化处理，得到注意力权重矩阵。
         # 然后将响应感知权重矩阵和注意力权重矩阵进行批次矩阵乘法，得到响应注意力矩阵。
         # 最后将响应注意力矩阵和匹配分数向量在第二个维度上互换，并进行批次矩阵乘法，并在第二个维度上互换回来，得到反馈信息向量。返回这个向量作为输出。
-        word_embedding = x2ms_adapter.nn_functional.dropout(self.feedback_embedding(gen_response), training=self.training)
+        # word_embedding = x2ms_adapter.nn_functional.dropout(self.feedback_embedding(gen_response), training=self.training)
+        word_embedding = self.feedback_embedding(gen_response)
         p_g = x2ms_adapter.tensor_api.unsqueeze(encode_outputs['p_g'], 1)  # p_g [batch_size, 1, knowledge_len]
         init_feedback_states = x2ms_adapter.zeros_like(p_g)  # 第0个state为0，即h0=0    [batch_size, 1, knowledge_len]
         feedback_outputs = self.feedback(word_embedding, init_feedback_states)  # 最后一位state [batch_size, 1, hidden_size]
@@ -609,10 +663,11 @@ class RFM(EncDecModel):
                                                                                        2)  # [batch_size, 1, knowledge_len]
         return response_attention
 
+    # test时调用
     def generation_to_decoder_input(self, data, indices):
-        return x2ms_adapter.tensor_api.masked_fill(indices, indices >= self.vocab_size, self.vocab2id[UNK_WORD])
+        return x2ms_adapter.tensor_api.masked_fill(indices, indices >= self.vocab_size, float(self.vocab2id[UNK_WORD]))
 
-    # decode to end调用
+    # test时调用
     def to_word(self, data, gen_output, k=5, sampling=False):
         gen_output = gen_output['p']
         if not sampling:
@@ -627,7 +682,7 @@ class RFM(EncDecModel):
         return to_copy_sentence(data, batch_indices, self.id2vocab, (data['ids'],data['dyn_id2vocab']))
 
     def construct(self, data):
-        encode_output, all_gen_output = self.decode_to_end(self, data,self.vocab2id, tgt=data['response'])
+        encode_output, all_gen_output = self.decode_to_end(data,self.vocab2id, max_target_length=10,tgt=data['response'])
         return encode_output, all_gen_output
 
     # def construct(self, data):
@@ -642,15 +697,19 @@ class RFM(EncDecModel):
         batch_size = len(data['id'])
         if max_target_length is None:
             max_target_length = x2ms_adapter.tensor_api.x2ms_size(tgt, 1)
+            print("max_target_length is:")
+            print(max_target_length)
         if encode_outputs is None:
             encode_outputs = self.encode(data)
+            print("encode complete")
         if init_decoder_states is None:
             init_decoder_states = self.init_decoder_states(data, encode_outputs)  # [batch_size, 1, hidden_size]
             # print('init_decoder_states: ', init_decoder_states.size())
+            print("init decoder complete")
         # feedback初始化
         if init_feedback_states is None:
             feedback_outputs = self.init_feedback_states(data, encode_outputs, init_decoder_states)
-
+            print("feedback iniet complete")
         decoder_input = new_tensor([vocab2id[BOS_WORD]] * batch_size, requires_grad=False)  # 当前的前一个词
 
         prob = x2ms_adapter.ones((batch_size,)) * schedule_rate
@@ -658,23 +717,33 @@ class RFM(EncDecModel):
             prob = prob
 
         all_gen_outputs = list()  # 存储pk, pv mix后的p
-        all_decode_outputs = [dict({'state': init_decoder_states})]  # 存储每个解码过程的pk, pv, state
+        all_decode_outputs = [dict({'state': init_decoder_states})]# 存储每个解码过程的pk, pv, state
+        print(all_decode_outputs)
         all_feedback_states = list()  # 保存所有的feedback state
         for t in range(max_target_length):
+            # 该步骤一个循环至少耗时35秒
+            # max_target_length为response的size时，即256时，会耗时接近3小时
             if t != 0:
+                print("start output the round is")
+                print(t)
                 all_decode_inputs = tgt[:, :t]  # 左闭右开，取到的是t之前所有的词
                 # 待完成：model.decoder_to_encoder()、完成feedback.forward()、修改model.decode()、测试、控制feedback维度
                 # feedback，输入为encoder输出（segment）和当前生成词前面的真值
                 feedback_outputs = self.decoder_to_encoder(data, encode_outputs, all_decode_inputs)  # all_decode_inputs用于GRU
+            # else:
+            #     print("start output the round is")
+            #     print(t)
+            #     dyn_map = data['dyn_map']
+            #     feedback_outputs = mindspore.Tensor(numpy.zeros((1,self.vocab_size + dyn_map.shape[2])),dtype=mindspore.float32)
                 all_feedback_states.append(feedback_outputs)
                 # decoder_outputs, decoder_states, ...
                 # 生成每个解码过程的pk, pv, state
-                decode_outputs = self.decode(
-                    data, decoder_input, encode_outputs, all_decode_outputs[-1], feedback_outputs
-                )
-                # 生成pk, pv mix后的p
-                output = self.generate(data, encode_outputs, decode_outputs, softmax=softmax)
+                decode_outputs = self.decode(data, decoder_input, encode_outputs, all_decode_outputs[-1], feedback_outputs)
 
+                # 生成pk, pv mix后的p
+                print(decode_outputs)
+                output = self.generate(data, encode_outputs, decode_outputs, softmax=softmax)
+                print("generate output")
                 all_decode_outputs.append(decode_outputs)
                 all_gen_outputs.append(output)
 
@@ -698,5 +767,9 @@ class RFM(EncDecModel):
             #     decoder_input = tgt[:, t] * draws + indices * (1 - draws)
 
         # all_gen_outputs = torch.cat(all_gen_outputs, dim=0).transpose(0, 1).contiguous()
+        print("encode_output are:")
+        print(encode_outputs)
+        print("all_gen_output are:")
+        print(all_gen_outputs)
 
         return encode_outputs, all_gen_outputs

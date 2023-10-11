@@ -322,7 +322,7 @@ def kl_div(input, target, size_average=None, reduce=None, reduction='mean', log_
         The input parameter log_target is not implemented.
     """
     reduction = legacy_parameter(size_average, reduce, reduction)
-    if reduction not in ['none', 'mean', 'sum']:
+    if reduction not in ['none', 'mean', 'sum','batchmean']:
         raise NotImplementedError(f"unsupported {reduction} reduction mode")
     kl_div_loss = mindspore.ops.KLDivLoss(reduction=reduction)
     return kl_div_loss(input, target)

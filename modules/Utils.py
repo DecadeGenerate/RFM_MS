@@ -156,8 +156,11 @@ def change_tensor(data, *, dtype=None, device=None, requires_grad=False, pin_mem
 #     return PackedSequence(torch._C._VariableFunctions._pack_padded_sequence(input, lengths, batch_first))
 
 def gru_forward(gru, input, lengths, state=None, batch_first=True):
-    gru.flatten_parameters()
-    input_lengths, perm = x2ms_adapter.sort(lengths, descending=True)
+    # gru.flatten_parameters()
+    if  lengths.dtype != mindspore.float32 and lengths.dtype != mindspore.float16:
+        lengths = lengths.astype(mindspore.float32)
+    print(lengths)
+    input_lengths, perm = mindspore.ops.Sort(descending=True)(lengths)
 
     input = input[perm]
     if state is not None:
@@ -166,14 +169,17 @@ def gru_forward(gru, input, lengths, state=None, batch_first=True):
     total_length = x2ms_adapter.tensor_api.x2ms_size(input, 1)
     if not batch_first:
         input = x2ms_adapter.tensor_api.transpose(input, 0, 1)  # B x L x N -> L x B x N
+    if input_lengths.dtype != mindspore.int32:
+        input_lengths = input_lengths.astype(mindspore.int32)
     packed = x2ms_nn.pack_padded_sequence(input, input_lengths, batch_first)
     # packed = hotfix_pack_padded_sequence(embedded, input_lengths, batch_first)
     # self.gru.flatten_parameters()
     outputs, state = gru(packed, state)  # -> L x B x N * n_directions, 1, B, N
     outputs, output_lengths = x2ms_nn.pad_packed_sequence(outputs, batch_first=batch_first,
                                                                      total_length=total_length)  # unpack (back to padded)
-
-    _, perm = x2ms_adapter.sort(perm, descending=False)
+    if  perm.dtype != mindspore.float32 and perm.dtype != mindspore.float16:
+        perm = perm.astype(mindspore.float32)
+    _, perm = mindspore.ops.Sort(descending=False)(perm)
     if not batch_first:
         outputs = x2ms_adapter.tensor_api.transpose(outputs, 0, 1)
     outputs = outputs[perm]

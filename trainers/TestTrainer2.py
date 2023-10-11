@@ -238,32 +238,20 @@ class DefaultTrainer(object):
         # if 'mle' in type:
         p = x2ms_adapter.cat([x2ms_adapter.tensor_api.unsqueeze(p['p'], 1) for p in all_gen_output], dim=1)
         p = x2ms_adapter.tensor_api.view(p, -1, x2ms_adapter.tensor_api.x2ms_size(p, -1))
-
-        if data['dyn_response'].shape[1] != data['response'].shape[1]:
-            pad_length = data['response'].shape[1] - data['dyn_response'].shape[1]
-            paddings = ((0, 0), (0, pad_length))
-            dyn_response = mindspore.ops.Pad(paddings)(data['dyn_response'])
-        else:
-            dyn_response = data['dyn_response']
-        print("this is new dyn_response.shape:")
-        print(dyn_response.shape)
-        r_loss = x2ms_adapter.tensor_api.unsqueeze(self.model.criterion(p, data['response'], dyn_response, self.model.vocab2id[UNK_WORD], reduction='mean'), 0)
-        print("r_loss is:")
-        print(r_loss)
-        loss += [r_loss]
+        # r_loss = x2ms_adapter.tensor_api.unsqueeze(self.model.criterion(p, data['response'], data['dyn_response'], self.model.vocab2id[UNK_WORD], reduction='mean'), 0)
+        # print("r_loss is:")
+        # print(r_loss)
+        # loss += [r_loss]
         # if 'mcc' in type:
-        # sub_p1 = p[:, :self.model.vocab_size]
-        # row_sums1 = x2ms_adapter.x2ms_sum(sub_p1, dim=1, keepdim=True)
-        # normalized_p1 = sub_p1 / row_sums1
-        # e1_loss = 1 - 0.1 * x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.tensor_api.mean(nn.probability.distribution.Categorical(probs=normalized_p1 + self.model.eps).entropy()), 0)
-        # e2_loss = 1 - 0.1 * x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.tensor_api.mean(nn.probability.distribution.Categorical(probs=p[:, self.model.vocab_size:] + self.model.eps).entropy()), 0)
-        # print("e1_loss ,e2_loss are:")
-        # print(e1_loss)
-        # print(e2_loss)
-        # loss += [e1_loss, e2_loss]
+        e1_loss = 1 - 0.1 * x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.tensor_api.mean(nn.probability.distribution.Categorical(probs=p[:, :self.model.vocab_size] + self.model.eps).entropy()), 0)
+        e2_loss = 1 - 0.1 * x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.tensor_api.mean(nn.probability.distribution.Categorical(probs=p[:, self.model.vocab_size:] + self.model.eps).entropy()), 0)
+        print("e1_loss ,e2_loss are:")
+        print(e1_loss)
+        print(e2_loss)
+        loss += [e1_loss, e2_loss]
 
         # if 'ds' in type:
-        k_loss = x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.nn_functional.kl_div(x2ms_adapter.tensor_api.log((x2ms_adapter.tensor_api.squeeze(encode_output['p_s'], 1) + self.model.eps)),data['selection'] + self.model.eps,reduction='batchmean'), 0)
+        k_loss = x2ms_adapter.tensor_api.unsqueeze(x2ms_adapter.nn_functional.kl_div(x2ms_adapter.tensor_api.log((x2ms_adapter.tensor_api.squeeze(encode_output['p_s'], 1) + self.model.eps)),data['selection'] + self.model.eps, reduction='batchmean'), 0)
         print("k_loss is:")
         print(k_loss)
         loss += [k_loss]

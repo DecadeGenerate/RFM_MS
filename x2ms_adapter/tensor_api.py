@@ -633,12 +633,9 @@ def norm(obj, p='fro', dim=None, keepdim=False, dtype=None):
 
 @x2ms_func_decorator(mindspore.Tensor)
 def masked_fill(obj, mask, value):
-    broadcast_to = mindspore.ops.BroadcastTo(obj.shape)
-    mask = mask.astype(mindspore.int32)
-    reverse_mask = (mask == 0).astype(mindspore.int32)
-    mask = broadcast_to(mask)
-    reverse_mask = broadcast_to(reverse_mask)
-    return obj * reverse_mask + mask * value
+    obj = obj.astype(mindspore.float32)
+    change = mindspore.ops.MaskedFill()(obj, mask, value)
+    return change
 
 
 @x2ms_func_decorator(mindspore.Tensor)

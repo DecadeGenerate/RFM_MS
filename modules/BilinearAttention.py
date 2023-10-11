@@ -34,7 +34,7 @@ class BilinearAttention(nn.Cell):
         attn = x2ms_adapter.tensor_api.squeeze(self.v(wquh), -1)
 
         if mask is not None:
-            attn = x2ms_adapter.tensor_api.masked_fill(attn, ~mask, -float('inf'))
+            attn = x2ms_adapter.tensor_api.masked_fill(attn, mask, -float('inf'))
 
         return attn
 
